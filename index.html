@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Eyes in the Trees</title>
+<!-- open with no browser bars when launched from the Home Screen -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Eyes">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <style>
   :root { color-scheme: dark; }
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
@@ -267,11 +276,18 @@
 
   document.getElementById('more').addEventListener('click', function () { target = Math.min(target + 4, 40); showHud(); });
   document.getElementById('less').addEventListener('click', function () { target = Math.max(target - 4, 2); showHud(); });
-  document.getElementById('fs').addEventListener('click', function () {
-    var el = document.documentElement;
+  var fsBtn = document.getElementById('fs');
+  var root = document.documentElement;
+  var requestFs = root.requestFullscreen || root.webkitRequestFullscreen;
+  var exitFs = document.exitFullscreen || document.webkitExitFullscreen;
+  var standalone = window.navigator.standalone === true ||
+    (window.matchMedia && window.matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches);
+  // iPhones have no fullscreen for pages, and a Home Screen launch is already full screen
+  if (!requestFs || standalone) fsBtn.style.display = 'none';
+  fsBtn.addEventListener('click', function () {
     try {
-      if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen();
-      else if (document.exitFullscreen) document.exitFullscreen();
+      if (!(document.fullscreenElement || document.webkitFullscreenElement)) requestFs.call(root);
+      else if (exitFs) exitFs.call(document);
     } catch (e) {}
     showHud();
   });
