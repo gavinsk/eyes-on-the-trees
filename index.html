@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eyes in the Trees</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #start {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    background: #000; color: #9fd37a; font-family: Georgia, "Times New Roman", serif;
+    text-align: center; padding: 24px; cursor: pointer;
+  }
+  #start h1 { font-size: 28px; font-weight: normal; margin: 0; letter-spacing: 0.02em; }
+  #start p { margin: 0; font-size: 16px; color: #6f8f5a; max-width: 30ch; line-height: 1.5; }
+  #start button {
+    margin-top: 10px; font: inherit; font-size: 18px; color: #000; background: #9fd37a;
+    border: 0; border-radius: 999px; padding: 14px 32px; cursor: pointer;
+  }
+  #hud {
+    position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    display: flex; justify-content: center; gap: 10px; opacity: 0; transition: opacity .4s;
+    pointer-events: none; font-family: Georgia, serif;
+  }
+  #hud.show { opacity: 1; pointer-events: auto; }
+  #hud button {
+    font: inherit; font-size: 15px; color: #9fd37a; background: #0c120a;
+    border: 1px solid #2b3d22; border-radius: 999px; padding: 10px 18px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="start">
+  <h1>Eyes in the Trees</h1>
+  <p>Black screen, watching eyes. Tap to start, then tap anywhere for controls.</p>
+  <button id="go">Start</button>
+</div>
+
+<div id="hud">
+  <button id="more">More eyes</button>
+  <button id="less">Fewer eyes</button>
+  <button id="fs">Fullscreen</button>
+</div>
+
+<script>
+(function () {
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var start = document.getElementById('start');
+  var hud = document.getElementById('hud');
+  var W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
+  var running = false;
+  var target = 14;            // how many pairs on screen at once
+  var pairs = [];
+  var hudTimer = null;
+
+  var COLORS = [
+    { core: [220, 225, 195], glow: [120, 160, 95]  },  // mossy green
+    { core: [225, 210, 180], glow: [190, 150, 85]  },  // dull amber
+    { core: [215, 185, 175], glow: [170, 70, 60]   },  // dried-blood red
+    { core: [205, 212, 220], glow: [140, 160, 180] }   // misty gray-blue
+  ];
+
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  // find a spot that doesn't touch any eyes already on screen
+  function findSpot(fp) {
+    var minX = Math.min(fp, W / 2), maxX = Math.max(W - fp, W / 2);
+    var minY = Math.min(fp, H / 2), maxY = Math.max(H - fp, H / 2);
+    for (var n = 0; n < 60; n++) {
+      var x = rand(minX, maxX), y = rand(minY, maxY), ok = true;
+      for (var i = 0; i < pairs.length; i++) {
+        var q = pairs[i];
+        var dx = x - q.x, dy = y - q.y, need = fp + q.fp;
+        if (dx * dx + dy * dy < need * need) { ok = false; break; }
+      }
+      if (ok) return { x: x, y: y };
+    }
+    return null;
+  }
+
+  function makePair() {
+    var size = rand(0.012, 0.05) * Math.min(W, H) * (Math.random() < 0.12 ? 2.2 : 1);
+    var c = pick(COLORS);
+    var born = performance.now();
+    var gap = size * rand(2.4, 3.4);
+    var fp = gap / 2 + size * 2.2;   // keep-clear radius around the pair
+    var pos = findSpot(fp);
+    if (!pos) return null;
+    return {
+      x: pos.x,
+      y: pos.y,
+      fp: fp,
+      r: size,
+      gap: gap,
+      tilt: rand(-0.35, 0.35),
+      color: c,
+      born: born,
+      life: rand(5000, 14000),
+      fadeIn: rand(900, 2200),
+      fadeOut: rand(700, 1600),
+      nextBlink: born + rand(1500, 5000),
+      blinkStart: -1,
+      blinkLen: rand(150, 260),
+      look: 0,                 // pupil offset, -1..1
+      lookTo: 0,
+      nextLook: born + rand(600, 2500),
+      slit: Math.random() < 0.35   // some have narrow, cat-like pupils
+    };
+  }
+
+  function drawEye(p, cx, cy, alpha, open) {
+    var r = p.r;
+    var ry = Math.max(r * 0.08, r * 0.55 * open);
+    var rx = r * 1.15;
+    var g = p.color.glow, k = p.color.core;
+
+    // soft glow
+    var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 4.2);
+    grad.addColorStop(0, 'rgba(' + g[0] + ',' + g[1] + ',' + g[2] + ',' + (0.25 * alpha) + ')');
+    grad.addColorStop(1, 'rgba(' + g[0] + ',' + g[1] + ',' + g[2] + ',0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath(); ctx.arc(cx, cy, r * 4.2, 0, Math.PI * 2); ctx.fill();
+
+    // almond-shaped eye
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(p.tilt * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(-rx, 0);
+    ctx.quadraticCurveTo(0, -ry * 2, rx, 0);
+    ctx.quadraticCurveTo(0, ry * 2, -rx, 0);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(' + g[0] + ',' + g[1] + ',' + g[2] + ',' + alpha + ')';
+    ctx.fill();
+
+    // bright core
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = 'rgba(' + k[0] + ',' + k[1] + ',' + k[2] + ',' + (0.7 * alpha) + ')';
+    ctx.beginPath(); ctx.ellipse(0, 0, rx * 0.62, ry * 1.1, 0, 0, Math.PI * 2); ctx.fill();
+
+    // pupil
+    var px = p.look * rx * 0.28;
+    var pw = p.slit ? r * 0.16 : r * 0.34;
+    var ph = Math.max(ry * 1.7, 0.1);
+    ctx.fillStyle = 'rgba(0,0,0,' + alpha + ')';
+    ctx.beginPath(); ctx.ellipse(px, 0, pw, ph, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+  }
+
+  function frame(now) {
+    if (!running) return;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+
+    // top up to target count
+    var tries = 0;
+    while (pairs.length < target && tries < 6) {
+      var np = makePair();
+      if (np) pairs.push(np);
+      tries++;
+    }
+    // trim extras gently by shortening their life
+    if (pairs.length > target + 2) pairs[0].life = Math.min(pairs[0].life, now - pairs[0].born + 600);
+
+    for (var i = pairs.length - 1; i >= 0; i--) {
+      var p = pairs[i];
+      var age = now - p.born;
+      if (age > p.life + p.fadeOut) { pairs.splice(i, 1); continue; }
+
+      var a = 1;
+      if (age < p.fadeIn) a = age / p.fadeIn;
+      else if (age > p.life) a = 1 - (age - p.life) / p.fadeOut;
+      a = a * a * (3 - 2 * a);
+
+      // blink
+      var open = 1;
+      if (p.blinkStart < 0 && now > p.nextBlink) {
+        p.blinkStart = now;
+      }
+      if (p.blinkStart >= 0) {
+        var t = (now - p.blinkStart) / p.blinkLen;
+        if (t >= 1) {
+          p.blinkStart = -1;
+          // sometimes a double blink
+          p.nextBlink = now + (Math.random() < 0.25 ? 220 : rand(2500, 7000));
+        } else {
+          open = Math.abs(1 - 2 * t);   // close then open
+        }
+      }
+
+      // look around
+      if (now > p.nextLook) {
+        p.lookTo = pick([-1, -0.5, 0, 0.5, 1]);
+        p.nextLook = now + rand(900, 3500);
+      }
+      p.look += (p.lookTo - p.look) * 0.08;
+
+      var dx = Math.cos(p.tilt) * p.gap / 2;
+      var dy = Math.sin(p.tilt) * p.gap / 2;
+      drawEye(p, p.x - dx, p.y - dy, a, open);
+      drawEye(p, p.x + dx, p.y + dy, a, open);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // keep the phone awake
+  var wake = null;
+  function keepAwake() {
+    try {
+      if ('wakeLock' in navigator) {
+        navigator.wakeLock.request('screen').then(function (l) { wake = l; }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && running) keepAwake();
+  });
+
+  function showHud() {
+    hud.classList.add('show');
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(function () { hud.classList.remove('show'); }, 3500);
+  }
+
+  function begin() {
+    start.style.display = 'none';
+    running = true;
+    keepAwake();
+    requestAnimationFrame(frame);
+    showHud();
+  }
+
+  document.getElementById('go').addEventListener('click', function (e) { e.stopPropagation(); begin(); });
+  start.addEventListener('click', begin);
+  canvas.addEventListener('click', showHud);
+
+  document.getElementById('more').addEventListener('click', function () { target = Math.min(target + 4, 40); showHud(); });
+  document.getElementById('less').addEventListener('click', function () { target = Math.max(target - 4, 2); showHud(); });
+  document.getElementById('fs').addEventListener('click', function () {
+    var el = document.documentElement;
+    try {
+      if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen();
+      else if (document.exitFullscreen) document.exitFullscreen();
+    } catch (e) {}
+    showHud();
+  });
+})();
+</script>
+</body>
+</html>
