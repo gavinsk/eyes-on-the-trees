@@ -31,7 +31,7 @@
   }
   #hud {
     position: fixed; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
-    display: flex; justify-content: center; gap: 10px; opacity: 0; transition: opacity .4s;
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 0 16px; opacity: 0; transition: opacity .4s;
     pointer-events: none; font-family: Georgia, serif;
   }
   #hud.show { opacity: 1; pointer-events: auto; }
@@ -53,6 +53,8 @@
 <div id="hud">
   <button id="more">More eyes</button>
   <button id="less">Fewer eyes</button>
+  <button id="bigger">Bigger eyes</button>
+  <button id="smaller">Smaller eyes</button>
   <button id="fs">Fullscreen</button>
 </div>
 
@@ -65,6 +67,7 @@
   var W = 0, H = 0, DPR = Math.min(window.devicePixelRatio || 1, 2);
   var running = false;
   var target = 14;            // how many pairs on screen at once
+  var sizeScale = 1;          // set by the Bigger / Smaller buttons
   var pairs = [];
   var hudTimer = null;
 
@@ -117,7 +120,7 @@
   }
 
   function makePair() {
-    var size = rand(0.012, 0.05) * Math.min(W, H) * (Math.random() < 0.12 ? 2.2 : 1);
+    var size = rand(0.012, 0.05) * Math.min(W, H) * (Math.random() < 0.12 ? 2.2 : 1) * sizeScale;
     var c = pick(COLORS);
     var born = performance.now();
     var gap = size * rand(2.4, 3.4);
@@ -276,6 +279,19 @@
 
   document.getElementById('more').addEventListener('click', function () { target = Math.min(target + 4, 40); showHud(); });
   document.getElementById('less').addEventListener('click', function () { target = Math.max(target - 4, 2); showHud(); });
+
+  // resize the eyes already showing too, so the change is visible right away
+  function scaleEyes(f) {
+    var next = Math.min(Math.max(sizeScale * f, 0.4), 3);
+    f = next / sizeScale;
+    sizeScale = next;
+    for (var i = 0; i < pairs.length; i++) {
+      pairs[i].r *= f; pairs[i].gap *= f; pairs[i].fp *= f;
+    }
+    showHud();
+  }
+  document.getElementById('bigger').addEventListener('click', function () { scaleEyes(1.25); });
+  document.getElementById('smaller').addEventListener('click', function () { scaleEyes(0.8); });
   var fsBtn = document.getElementById('fs');
   var root = document.documentElement;
   var requestFs = root.requestFullscreen || root.webkitRequestFullscreen;
