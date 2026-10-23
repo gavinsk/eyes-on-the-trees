@@ -67,11 +67,25 @@
   ];
 
   function resize() {
+    var oldW = W, oldH = H;
     W = window.innerWidth; H = window.innerHeight;
+    if (W === oldW && H === oldH) return;
     canvas.width = W * DPR; canvas.height = H * DPR;
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // after a rotation, move eyes already on screen to the same relative spot
+    if (oldW && oldH) {
+      for (var i = 0; i < pairs.length; i++) {
+        pairs[i].x = pairs[i].x / oldW * W;
+        pairs[i].y = pairs[i].y / oldH * H;
+      }
+    }
   }
   window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () {
+    // phones report the new size a moment after rotating
+    setTimeout(resize, 100);
+    setTimeout(resize, 500);
+  });
   resize();
 
   function rand(a, b) { return a + Math.random() * (b - a); }
